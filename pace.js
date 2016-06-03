@@ -28,11 +28,7 @@ var charm = require('charm');
 function Pace(options) {
   options = options || {};
 
-  // Total number of items to process.
-  if (!options.total) {
-    throw new Error('You MUST specify the total number of operations that will be processed.');
-  }
-  this.total = options.total;
+  this.total = options.total || undefined;
 
   // Current item number.
   this.current = 0;
@@ -44,8 +40,15 @@ function Pace(options) {
   // Whether to show current burden %.
   this.show_burden = options.showBurden || false;
 
+  // Custom metrics to track
+  // Example:
+  // {
+  //     'error' : 5
+  // }
+  this.metrics = options.metrics || {};
+
   // Internal time tracking properties.
-  this.started = false;
+  this.started = new Date().getTime();
   this.size = 50;
   this.inner_time = 0;
   this.outer_time = 0;
@@ -62,8 +65,9 @@ function Pace(options) {
   this.charm = charm();
   this.charm.pipe(process.stdout);
 
-  // Prepare the output.
-  this.charm.write("\n\n\n");
+  this.initializeDisplay();
+
+
 }
 
 /**
@@ -78,6 +82,19 @@ module.exports = function(options) {
   return new Pace(options);
 };
 
+Pace.prototype.initializeDisplay = function() {
+  // Prepare the output.
+  this.charm.write("\n\n\n");
+
+  this.time_start = new Date().getTime();
+
+  this.updateTimes();
+  this.clear();
+  this.outputProgress();
+  this.outputStats();
+  this.outputTimes();
+}
+
 /**
  * An operation has been emitted.
  */
@@ -91,11 +108,6 @@ Pace.prototype.op = function op(count) {
 
   if (this.burdenReached()) {
     return;
-  }
-
-  // Record the start time of the whole task.
-  if (!this.started) {
-    this.started = new Date().getTime();
   }
 
   // Record start time.
@@ -144,7 +156,7 @@ Pace.prototype.updateTimes = function updateTimes() {
  * Move the cursor back to the beginning and clear old output.
  */
 Pace.prototype.clear = function clear() {
-  this.charm.erase('line').up(1).erase('line').up(1).erase('line').write("\r");
+  this.charm.erase('line').up(1).erase('line').up(1).erase('line').left(100);
 };
 
 /**
@@ -168,12 +180,17 @@ Pace.prototype.outputProgress = function outputProgress() {
  * Output numerical progress stats.
  */
 Pace.prototype.outputStats = function outputStats() {
-  this.perc = (this.current/this.total)*100;
+  if(this.total) {
+    this.perc = (this.current/this.total)*100;
+
+  } else {
+    this.perc = 0;
+  }
   this.perc = padLeft(this.perc.toFixed(2), 2);
   this.charm.write('            ').display('bright').write(this.perc + '%').display('reset');
   this.total_len = formatNumber(this.total).length;
   this.charm.write('   ').display('bright').write(padLeft(formatNumber(this.current), this.total_len)).display('reset');
-  this.charm.write('/' + formatNumber(this.total));
+  this.charm.write('/' + (this.total ? formatNumber(this.total) : '???'));
 
   // Output burden.
   if (this.show_burden) {
@@ -181,8 +198,20 @@ Pace.prototype.outputStats = function outputStats() {
     this.charm.write(this.time_burden.toFixed(2) + '% / ' + this.skip_steps);
   }
 
+  for (key in this.metrics) {
+    this.charm.write('    ').display('bright').write(key + ': ').display('reset');
+    this.charm.write(formatNumber(this.metrics[key]));
+  }
+
   this.charm.display('reset').down(1).left(100);
 };
+
+/**
+  Increment metric measurement
+**/
+Pace.prototype.incrementMetric = function(metric) {
+  this.metrics[metric]++;
+}
 
 /**
  * Output times.
@@ -231,7 +260,6 @@ Pace.prototype.burdenReached = function burdenReached() {
   }
   return false;
 };
-
 
 /**
  * Utility functions.
